@@ -117,8 +117,6 @@ def main() -> int:
 
     # Secret 完整性预检
     missing = []
-    if not webhook:
-        missing.append("FEISHU_WEBHOOK_URL")
     if not api_key:
         missing.append("OPENAI_API_KEY" if provider == "openai" else "GEMINI_API_KEY")
     if missing:
@@ -140,14 +138,17 @@ def main() -> int:
     step3_report_text = ""
 
     _log(f"开始定时任务 provider={provider} model={model}", logs_path)
+    if not webhook:
+        _log("FEISHU_WEBHOOK_URL 未配置：将跳过飞书推送，仅保留后续步骤", logs_path)
+
 
     # 阶段 1：Wyckoff Funnel
     t0 = datetime.now(TZ)
     step2_ok = False
     step2_err = None
     try:
-        step2_ok, symbols_info, benchmark_context = run_step2(webhook)
-        step2_err = None if step2_ok else "飞书发送失败"
+        step2_ok, symbols_info, benchmark_context = run_step2(webhook or "")
+        step2_err = None if step2_ok else ("飞书发送失败" if webhook else "skip_feishu")
     except Exception as e:
         step2_err = str(e)
     elapsed2 = (datetime.now(TZ) - t0).total_seconds()
@@ -159,7 +160,7 @@ def main() -> int:
         "output": f"{len(symbols_info)} symbols",
     })
     _log(f"阶段 1 Wyckoff Funnel: ok={step2_ok}, symbols={len(symbols_info)}, elapsed={elapsed2:.1f}s, err={step2_err}", logs_path)
-    if step2_err:
+    if step2_err and step2_err != "skip_feishu":
         has_blocking_failure = True
 
     # 阶段 2：批量研报（可降级：失败不影响 Funnel 成功）
