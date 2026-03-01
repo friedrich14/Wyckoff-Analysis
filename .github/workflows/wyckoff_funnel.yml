@@ -38,6 +38,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cooldown guard (manual trigger must be >=90min)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WF: wyckoff_funnel.yml
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python - << 'PY'
+          import os, requests, datetime, sys
+          token=os.environ['GH_TOKEN']
+          repo=os.environ['REPO']
+          wf=os.environ['WF']
+          run_id=int(os.environ['RUN_ID'])
+          h={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json'}
+          u=f'https://api.github.com/repos/{repo}/actions/workflows/{wf}/runs?per_page=20'
+          r=requests.get(u,headers=h,timeout=20)
+          r.raise_for_status()
+          runs=r.json().get('workflow_runs',[])
+          prev=None
+          for x in runs:
+            if int(x.get('id',0))!=run_id:
+              prev=x;break
+          if not prev:
+            print('No previous run found, continue.')
+            sys.exit(0)
+          created=prev.get('created_at')
+          t_prev=datetime.datetime.fromisoformat(created.replace('Z','+00:00'))
+          t_now=datetime.datetime.now(datetime.timezone.utc)
+          delta=(t_now-t_prev).total_seconds()/60
+          if delta<90:
+            wait=90-delta
+            print(f'Blocked by cooldown: previous run {delta:.1f} min ago, need >=90 min. Wait about {wait:.1f} min.')
+            sys.exit(1)
+          print(f'Cooldown passed: previous run {delta:.1f} min ago.')
+          PY
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
