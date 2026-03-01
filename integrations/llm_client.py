@@ -8,8 +8,7 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-# 首期仅实现 Gemini；后续可增加 openai
-SUPPORTED_PROVIDERS = ("gemini",)
+SUPPORTED_PROVIDERS = ("gemini", "openai")
 GEMINI_MODELS = (
     "gemini-2.5-flash",
     "gemini-3.1-pro-preview",
@@ -68,7 +67,16 @@ def call_llm(
             timeout=timeout,
             max_output_tokens=max_output_tokens,
         )
-    # 后续可加: elif provider == "openai": return _call_openai(...)
+    if provider == "openai":
+        return _call_openai_compatible(
+            model=model,
+            api_key=api_key.strip(),
+            system_prompt=system_prompt,
+            user_message=user_message,
+            timeout=timeout,
+            base_url=base_url,
+            max_output_tokens=max_output_tokens,
+        )
     raise ValueError(f"未实现的供应商: {provider}")
 
 
@@ -159,3 +167,51 @@ def _call_gemini(
             time.sleep(sleep_s)
 
     raise RuntimeError(f"Gemini 调用失败: {last_err}")
+
+
+def _call_openai_compatible(
+    model: str,
+    api_key: str,
+    system_prompt: str,
+    user_message: str,
+    timeout: int,
+    base_url: Optional[str],
+    max_output_tokens: Optional[int],
+) -> str:
+    from openai import OpenAI
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url=base_url or "https://api.openai.com/v1",
+        timeout=timeout,
+    )
+
+    # Responses API（优先），失败再回退 Chat Completions
+    try:
+        resp = client.responses.create(
+            model=model,
+            input=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+            max_output_tokens=max(1024, int(max_output_tokens or 4096)),
+        )
+        text = getattr(resp, "output_text", None)
+        if text and str(text).strip():
+            return str(text).strip()
+    except Exception as e:
+        print(f"[llm] openai responses fallback to chat.completions: {e}")
+
+    chat = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+        max_tokens=max(1024, int(max_output_tokens or 4096)),
+        temperature=0.4,
+    )
+    text = (chat.choices[0].message.content or "").strip()
+    if not text:
+        raise RuntimeError("OpenAI 返回内容为空")
+    return text

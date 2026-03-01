@@ -111,9 +111,11 @@ def _has_required_sections(report: str) -> bool:
 
 def _repair_report_structure(
     report: str,
+    provider: str,
     model: str,
     api_key: str,
     selected_codes: list[str],
+    base_url: str | None = None,
 ) -> str:
     """
     当模型未给出“观察池/操作池”双层结构时，做一次结构修复重写。
@@ -135,12 +137,13 @@ def _repair_report_structure(
     )
     try:
         fixed = call_llm(
-            provider="gemini",
+            provider=provider,
             model=model,
             api_key=api_key,
             system_prompt=repair_system,
             user_message=repair_user,
             timeout=180,
+            base_url=base_url,
             max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
         )
         return fixed or report
@@ -582,6 +585,8 @@ def run(
     api_key: str,
     model: str,
     benchmark_context: dict | None = None,
+    provider: str = "gemini",
+    base_url: str | None = None,
 ) -> tuple[bool, str, str]:
     """
     拉取 OHLCV → 第五步特征工程 → AI 研报 → 飞书发送。
@@ -850,12 +855,13 @@ def run(
     for m in models_to_try:
         try:
             report = call_llm(
-                provider="gemini",
+                provider=provider,
                 model=m,
                 api_key=api_key,
                 system_prompt=WYCKOFF_FUNNEL_SYSTEM_PROMPT,
                 user_message=user_message,
                 timeout=300,
+                base_url=base_url,
                 max_output_tokens=STEP3_MAX_OUTPUT_TOKENS,
             )
             used_model = m
@@ -869,9 +875,11 @@ def run(
         print("[step3] 首版研报缺少观察池/可操作池，执行一次结构修复")
         report = _repair_report_structure(
             report=report,
+            provider=provider,
             model=used_model or model,
             api_key=api_key,
             selected_codes=selected_codes,
+            base_url=base_url,
         )
     if not _has_required_sections(report):
         print("[step3] 结构修复后仍缺少关键章节，追加系统兜底分层")

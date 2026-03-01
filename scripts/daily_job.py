@@ -26,7 +26,7 @@ STEP3_REASON_MAP = {
     "no_data_but_no_error": "无可用数据",
 }
 STEP4_REASON_MAP = {
-    "missing_api_key": "GEMINI_API_KEY 缺失",
+    "missing_api_key": "LLM API Key 缺失",
     "skipped_invalid_portfolio": "持仓配置缺失或格式错误，已跳过",
     "skipped_telegram_unconfigured": "Telegram 未配置，已跳过",
     "skipped_idempotency": "今日已运行，已跳过",
@@ -99,8 +99,16 @@ def main() -> int:
     args = parser.parse_args()
 
     webhook = os.getenv("FEISHU_WEBHOOK_URL", "").strip()
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
-    model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+    provider = (os.getenv("LLM_PROVIDER", "openai").strip() or "openai").lower()
+    if provider == "openai":
+        api_key = os.getenv("OPENAI_API_KEY", "").strip()
+        model = os.getenv("OPENAI_MODEL", "gpt-4o").strip() or "gpt-4o"
+        base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").strip() or "https://api.openai.com/v1"
+    else:
+        provider = "gemini"
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        model = os.getenv("GEMINI_MODEL", "gemini-2.0-flash").strip() or "gemini-2.0-flash"
+        base_url = None
 
     logs_path = args.logs or os.path.join(
         os.getenv("LOGS_DIR", "logs"),
@@ -112,7 +120,7 @@ def main() -> int:
     if not webhook:
         missing.append("FEISHU_WEBHOOK_URL")
     if not api_key:
-        missing.append("GEMINI_API_KEY")
+        missing.append("OPENAI_API_KEY" if provider == "openai" else "GEMINI_API_KEY")
     if missing:
         _log(f"配置缺失: {', '.join(missing)}", logs_path)
         return 1
@@ -131,7 +139,7 @@ def main() -> int:
     benchmark_context: dict = {}
     step3_report_text = ""
 
-    _log("开始定时任务", logs_path)
+    _log(f"开始定时任务 provider={provider} model={model}", logs_path)
 
     # 阶段 1：Wyckoff Funnel
     t0 = datetime.now(TZ)
@@ -161,7 +169,7 @@ def main() -> int:
         t0 = datetime.now(TZ)
         try:
             step3_ok, step3_reason, step3_report_text = run_step3(
-                symbols_info, webhook, api_key, model, benchmark_context=benchmark_context
+                symbols_info, webhook, api_key, model, benchmark_context=benchmark_context, provider=provider, base_url=base_url
             )
             step3_err = None if step3_ok else STEP3_REASON_MAP.get(step3_reason, step3_reason)
         except Exception as e:
@@ -202,6 +210,8 @@ def main() -> int:
                 benchmark_context=benchmark_context,
                 api_key=api_key,
                 model=model,
+                provider=provider,
+                base_url=base_url,
             )
             step4_err = None if step4_ok else STEP4_REASON_MAP.get(step4_reason, step4_reason)
         except Exception as e:

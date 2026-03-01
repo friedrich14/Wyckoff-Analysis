@@ -1140,6 +1140,8 @@ def run(
     benchmark_context: dict | None,
     api_key: str,
     model: str,
+    provider: str = "gemini",
+    base_url: str | None = None,
 ) -> tuple[bool, str]:
     if not api_key or not api_key.strip():
         return (False, "missing_api_key")
@@ -1207,12 +1209,13 @@ def run(
 
     try:
         raw = call_llm(
-            provider="gemini",
+            provider=provider,
             model=model,
             api_key=api_key,
             system_prompt=PRIVATE_PM_DECISION_JSON_PROMPT,
             user_message=user_message,
             timeout=300,
+            base_url=base_url,
             max_output_tokens=STEP4_MAX_OUTPUT_TOKENS,
         )
     except Exception as e:
